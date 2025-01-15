@@ -31,6 +31,7 @@ var (
 	multinodeHostAddress string
 	readyFd              int
 	exitFd               int
+	handlerIP            string
 )
 
 func main() {
@@ -46,6 +47,7 @@ func main() {
 	flag.StringVar(&logFilePath, "log-file", "", "Output logs to file")
 	flag.StringVar(&multinodeEtcdAddress, "multinode-etcd-address", "", "Etcd address for multinode communication")
 	flag.StringVar(&multinodeHostAddress, "multinode-host-address", "", "Host address for multinode communication")
+	flag.StringVar(&handlerIP, "ip", "", "Handler IP address")
 	flag.IntVar(&readyFd, "ready-fd", -1, "File descriptor to notify when ready")
 	flag.IntVar(&exitFd, "exit-fd", -1, "File descriptor for terminating bypass4netns")
 	ignoredSubnets := flag.StringSlice("ignore", []string{"127.0.0.0/8"}, "Subnets to ignore in bypass4netns. Can be also set to \"auto\".")
@@ -155,8 +157,9 @@ func main() {
 
 	logrus.Infof("SocketPath: %s", socketFile)
 
-	handler := bypass4netns.NewHandler(socketFile, comSocketFile, strings.Replace(logFilePath, ".log", "-tracer.log", -1), *ignoreBind)
+	handler := bypass4netns.NewHandler(socketFile, comSocketFile, strings.Replace(logFilePath, ".log", "-tracer.log", -1), *ignoreBind, handlerIP)
 
+	logrus.Infof("%s is added to handle", handlerIP)
 	subnets := []net.IPNet{}
 	var subnetsAuto bool
 	for _, subnetStr := range *ignoredSubnets {

@@ -148,6 +148,12 @@ func (ss *socketStatus) handleSysConnect(handler *notifHandler, ctx *context) {
 	}
 	ss.addr = destAddr
 
+	if handler.ip != "" && destAddr.IP.String() != handler.ip {
+		ss.logger.Infof("destination IP %s does not match handler IP %s, skipping socket creation", destAddr.IP, handler.ip)
+		ss.state = NotBypassable
+		return
+	}
+
 	var newDestAddr net.IP
 	switch destAddr.Family {
 	case syscall.AF_INET:

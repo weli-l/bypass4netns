@@ -647,10 +647,11 @@ type Handler struct {
 	forwardingPorts map[int]ForwardPortMapping
 
 	ignoreBind bool
+	ip         string
 }
 
 // NewHandler creates new seccomp notif handler
-func NewHandler(socketPath, comSocketPath, tracerAgentLogPath string, ignoreBind bool) *Handler {
+func NewHandler(socketPath, comSocketPath, tracerAgentLogPath string, ignoreBind bool, ip string) *Handler {
 	handler := Handler{
 		socketPath:         socketPath,
 		comSocketPath:      comSocketPath,
@@ -659,6 +660,7 @@ func NewHandler(socketPath, comSocketPath, tracerAgentLogPath string, ignoreBind
 		forwardingPorts:    map[int]ForwardPortMapping{},
 		readyFd:            -1,
 		ignoreBind:         ignoreBind,
+		ip:                 ip,
 	}
 
 	return &handler
@@ -732,6 +734,7 @@ type notifHandler struct {
 	pidInfos map[int]pidInfo
 
 	ignoreBind bool
+	ip         string
 }
 
 type containerInterface struct {
@@ -817,6 +820,8 @@ func (h *Handler) StartHandle(c2cConfig *C2CConnectionHandleConfig, multinodeCon
 
 		logrus.Infof("Received new seccomp fd: %v", newFd)
 		notifHandler := h.newNotifHandler(newFd, state)
+		notifHandler.ip = h.ip
+		logrus.Infof("%s is added to handle", notifHandler.ip)
 		notifHandler.c2cConnections = c2cConfig
 		notifHandler.multinode = multinodeConfig
 		if notifHandler.multinode.Enable {
