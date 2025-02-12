@@ -147,6 +147,7 @@ func (ss *socketStatus) handleSysConnect(handler *notifHandler, ctx *context) {
 		return
 	}
 	ss.addr = destAddr
+	ss.logger.Infof("destination address: %s", destAddr)
 
 	if handler.ip != "" && destAddr.IP.String() != handler.ip {
 		ss.logger.Infof("destination IP %s does not match handler IP %s, skipping socket creation", destAddr.IP, handler.ip)
@@ -161,9 +162,11 @@ func (ss *socketStatus) handleSysConnect(handler *notifHandler, ctx *context) {
 		newDestAddr = newDestAddr.To4()
 		newDestAddr[0] = 127
 		newDestAddr[3] = 1
+		ss.logger.Infof("destination address is IPv4, newDestAddr set to loopback: %s", newDestAddr)
 	case syscall.AF_INET6:
 		newDestAddr = net.IPv6loopback
 		newDestAddr = newDestAddr.To16()
+		ss.logger.Infof("destination address is IPv6, newDestAddr set to loopback: %s", newDestAddr)
 	default:
 		ss.logger.Errorf("unexpected destination address family %d", destAddr.Family)
 		ss.state = Error
@@ -178,7 +181,9 @@ func (ss *socketStatus) handleSysConnect(handler *notifHandler, ctx *context) {
 	if !ss.ignoreBind {
 		var ok bool
 		fwdPort, ok = handler.forwardingPorts[int(destAddr.Port)]
+		ss.logger.Infof("forwardingPorts for destination port %d found: %v", destAddr.Port, ok)
 		if ok {
+			ss.logger.Infof("forwarding port found for destination port %d", destAddr.Port)
 			if destAddr.IP.IsLoopback() {
 				ss.logger.Infof("destination address %v is loopback and bypassed", destAddr)
 				connectToLoopback = true
@@ -189,12 +194,14 @@ func (ss *socketStatus) handleSysConnect(handler *notifHandler, ctx *context) {
 		}
 	}
 
+	ss.logger.Infof("multinode.Enable=%v, destAddr.IP.IsPrivate()=%v", handler.multinode.Enable, destAddr.IP.IsPrivate())
 	if handler.multinode.Enable && destAddr.IP.IsPrivate() {
 		// currently, only private addresses are available in multinode communication.
 		key := ETCD_MULTINODE_PREFIX + destAddr.String()
 		ctx, cancel := gocontext.WithTimeout(gocontext.Background(), 2*time.Second)
 		res, err := handler.multinode.etcdClient.Get(ctx, ETCD_MULTINODE_PREFIX+destAddr.String())
 		cancel()
+		ss.logger.Infof("multinode lookup for %s resulted in error: %v", key, err)
 		if err != nil {
 			ss.logger.WithError(err).Warnf("destination address %q is not registered", key)
 		} else {
@@ -205,6 +212,7 @@ func (ss *socketStatus) handleSysConnect(handler *notifHandler, ctx *context) {
 			}
 			hostAddrWithPort := string(res.Kvs[0].Value)
 			hostAddrs := strings.Split(hostAddrWithPort, ":")
+			ss.logger.Infof("etcd response: hostAddrWithPort=%s, hostAddrs=%v", hostAddrWithPort, hostAddrs)
 			if len(hostAddrs) != 2 {
 				ss.logger.Errorf("invalid address format %q", hostAddrWithPort)
 				ss.state = Error
@@ -222,17 +230,22 @@ func (ss *socketStatus) handleSysConnect(handler *notifHandler, ctx *context) {
 			connectToOtherBypassedContainer = true
 			ss.logger.Infof("destination address %v is container address and bypassed via overlay network", destAddr)
 		}
-	} else if handler.c2cConnections.Enable {
-		contIf, ok := handler.containerInterfaces[destAddr.String()]
-		if ok {
-			ss.logger.Infof("destination address %v is container address and bypassed", destAddr)
-			fwdPort.HostPort = contIf.hostPort
-			connectToOtherBypassedContainer = true
+	} else {
+		ss.logger.Infof("c2cConnections.Enable=%v", handler.c2cConnections.Enable)
+		if handler.c2cConnections.Enable {
+			contIf, ok := handler.containerInterfaces[destAddr.String()]
+			ss.logger.Infof("containerInterfaces for destination %v: %v", destAddr.String(), ok)
+			if ok {
+				ss.logger.Infof("destination address %v is container address and bypassed", destAddr)
+				fwdPort.HostPort = contIf.hostPort
+				connectToOtherBypassedContainer = true
+			}
 		}
 	}
 
 	// check whether the destination container socket is bypassed or not.
 	isNotBypassed := handler.nonBypassable.Contains(destAddr.IP)
+	ss.logger.Infof("Checking nonBypassable for destAddr %v: %v", destAddr.IP, isNotBypassed)
 
 	if !connectToLoopback && !connectToInterface && !connectToOtherBypassedContainer && isNotBypassed {
 		ss.logger.Infof("destination address %v is not bypassed.", destAddr.IP)
@@ -271,6 +284,7 @@ func (ss *socketStatus) handleSysConnect(handler *notifHandler, ctx *context) {
 		return
 	}
 
+	ss.logger.Infof("connectToLoopback=%v, connectToInterface=%v, connectToOtherBypassedContainer=%v", connectToLoopback, connectToInterface, connectToOtherBypassedContainer)
 	if connectToLoopback || connectToInterface || connectToOtherBypassedContainer {
 		p := make([]byte, 2)
 		binary.BigEndian.PutUint16(p, uint16(fwdPort.HostPort))
@@ -285,6 +299,7 @@ func (ss *socketStatus) handleSysConnect(handler *notifHandler, ctx *context) {
 		ss.logger.Infof("destination's port %d is rewritten to host-side port %d", ss.addr.Port, fwdPort.HostPort)
 	}
 
+	ss.logger.Infof("connectToInterface=%v, connectToOtherBypassedContainer=%v", connectToInterface, connectToOtherBypassedContainer)
 	if connectToInterface || connectToOtherBypassedContainer {
 		// writing host's loopback address to connect to bypassed socket at sock_addr's address offset
 		// TODO: should we return dummy value when getpeername(2) is called?
